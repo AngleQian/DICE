@@ -1,0 +1,6 @@
+*.JPG
+.DS_Store
+*_WorkingDir
+analysis_output*.pdf
+dataset_overview.txt
+__pycache__
