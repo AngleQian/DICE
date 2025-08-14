@@ -28,6 +28,9 @@ class DerivedDatasetParameters:
     # Noise suppression: centered moving average window (points) and compression factor in [0,1]
     moving_average_window_points: int = 100
     offset_compression_factor: float = 1.0  # 1.0 = no suppression; 0.0 = fully average
+    # Data augmentation: if enabled, replace the series with a synthetic line-fit + noise
+    augment_data: bool = False
+    augmentation_noise_scale: float = 1.0  # Multiplier on estimated noise std
 
     @property
     def original_parameters(self) -> DatasetParameters:
@@ -57,14 +60,20 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     #     working_dir="0726Midnight_WorkingDir",
     #     x_seconds_keep=15000,
     #     vertical_scaling_factor=1.17,
-    #     offset_compression_factor=0.10,
+    #     offset_compression_factor=0.7,
     # ),
     # DerivedDatasetParameters(
     #     working_dir="0620Midnight_WorkingDir",
     #     x_seconds_keep=15000,
     #     vertical_scaling_factor=1.0,
-    #     offset_compression_factor=0.05,
+    #     offset_compression_factor=0.9,
     # ),
+    DerivedDatasetParameters(
+        working_dir="0621Midnight_WorkingDir",
+        x_seconds_keep=15000,
+        vertical_scaling_factor=1.2,
+        offset_compression_factor=0.8,
+    ),
     # Liner 1 100p, -47 @ 5500
     # Liner 1 120p, -55 @ 6000
 
@@ -166,16 +175,40 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
     if params.vertical_scaling_factor != 1.0:
         ys_nested = [[y * params.vertical_scaling_factor for y in sub] for sub in ys_nested]
 
-    # Compute per-image means and apply noise suppression if configured
+    # Compute per-image means
     means = np.array([float(np.mean(sub)) for sub in ys_nested], dtype=float)
+
+    # Always apply noise suppression first
     means_suppressed = _apply_noise_suppression(
         means,
         window=params.moving_average_window_points,
         compress=params.offset_compression_factor,
     )
 
-    # Feed adjusted means as single-valued sublists for plotting routine
-    ys_nested_adjusted = [[val] for val in means_suppressed.tolist()]
+    if params.augment_data:
+        # Fit a line to the suppressed series and simulate noise based on recent suppressed residuals
+        x_arr = np.array(xs, dtype=float)
+        if len(x_arr) >= 2 and np.std(x_arr) > 0:
+            slope, intercept = np.polyfit(x_arr, means_suppressed, 1)
+            fitted = slope * x_arr + intercept
+            residuals = means_suppressed - fitted
+        else:
+            # Degenerate case: not enough points or zero time variance; treat as constant
+            slope, intercept = 0.0, float(means_suppressed[-1] if len(means_suppressed) > 0 else 0.0)
+            fitted = np.full_like(means_suppressed, intercept)
+            residuals = means_suppressed - fitted
+
+        window_pts = params.moving_average_window_points if params.moving_average_window_points > 1 else len(residuals)
+        window_pts = min(window_pts, len(residuals)) if len(residuals) > 0 else 0
+        noise_std = float(np.std(residuals[-window_pts:])) if window_pts > 0 else 0.0
+
+        rng = np.random.default_rng()
+        simulated_noise = rng.normal(loc=0.0, scale=noise_std * params.augmentation_noise_scale, size=len(x_arr))
+        augmented = fitted + simulated_noise
+        ys_nested_adjusted = [[float(v)] for v in augmented.tolist()]
+    else:
+        # No augmentation; use suppressed series as-is
+        ys_nested_adjusted = [[val] for val in means_suppressed.tolist()]
 
     return xs, ys_nested_adjusted, params.description
 
