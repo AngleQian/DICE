@@ -1,0 +1,7 @@
+Liner 1 80p, -35
+Liner 1 100p, -47
+Liner 1 120p, -55
+
+Liner 2 80p, -23
+Liner 2 100p, -26
+Liner 2 120p, -30

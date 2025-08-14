@@ -4,6 +4,7 @@ import pathlib
 from dataclasses import dataclass
 import numpy as np
 from typing import Optional, Callable
+import pickle
 from parameters import (
     ExperimentLabels,
     DatasetParameters,
@@ -316,6 +317,81 @@ class Dataset:
         ]
 
 
+CACHE_DIR = PROJECT_ROOT / ".cache"
+CACHE_VERSION = 1
+
+
+def _ensure_cache_dir() -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _get_cache_path_for_working_dir(working_dir: str) -> pathlib.Path:
+    safe_key = working_dir.replace("/", "_")
+    return CACHE_DIR / f"dataset_{safe_key}.pkl"
+
+
+def _get_solution_files_fingerprint(solution_files: list[pathlib.Path]) -> list[tuple[str, float, int]]:
+    fingerprint: list[tuple[str, float, int]] = []
+    for f in solution_files:
+        try:
+            stat = f.stat()
+            fingerprint.append((f.name, stat.st_mtime, stat.st_size))
+        except FileNotFoundError:
+            # If any file is missing, include a placeholder to force cache invalidation
+            fingerprint.append((f.name, 0.0, -1))
+    # Sort for deterministic ordering
+    fingerprint.sort(key=lambda x: x[0])
+    return fingerprint
+
+
+def _load_all_data_entries_for_working_dir(working_dir: str) -> list[DataEntry]:
+    solution_files = get_solution_files(working_dir)
+    data_entries = [load_dataentry(solution_file) for solution_file in solution_files]
+    return data_entries
+
+
+def _load_or_build_cached_data_entries(working_dir: str) -> list[DataEntry]:
+    _ensure_cache_dir()
+    cache_path = _get_cache_path_for_working_dir(working_dir)
+
+    current_solution_files = get_solution_files(working_dir)
+    current_fingerprint = _get_solution_files_fingerprint(current_solution_files)
+
+    if cache_path.exists():
+        try:
+            with cache_path.open("rb") as fh:
+                payload = pickle.load(fh)
+            if (
+                isinstance(payload, dict)
+                and payload.get("version") == CACHE_VERSION
+                and payload.get("working_dir") == working_dir
+            ):
+                cached_fingerprint = payload.get("fingerprint", [])
+                if cached_fingerprint == current_fingerprint:
+                    data_entries: list[DataEntry] = payload["data_entries"]
+                    print(f"Loaded cached data entries for {working_dir} from {cache_path}")
+                    return data_entries
+        except Exception as e:
+            print(f"Warning: failed to load cache for {working_dir} at {cache_path}: {e}")
+
+    # Build and persist cache
+    print(f"Building cache for {working_dir} ...")
+    data_entries = _load_all_data_entries_for_working_dir(working_dir)
+    payload = {
+        "version": CACHE_VERSION,
+        "working_dir": working_dir,
+        "fingerprint": current_fingerprint,
+        "data_entries": data_entries,
+    }
+    try:
+        with cache_path.open("wb") as fh:
+            pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Cached data entries for {working_dir} at {cache_path}")
+    except Exception as e:
+        print(f"Warning: failed to write cache for {working_dir} at {cache_path}: {e}")
+    return data_entries
+
+
 def load_dataentry(solution_file: pathlib.Path) -> DataEntry:
     """
     SUBSET_ID,COORDINATE_X,COORDINATE_Y,DISPLACEMENT_X,DISPLACEMENT_Y,SIGMA,GAMMA,BETA,STATUS_FLAG,UNCERTAINTY,VSG_STRAIN_XX,VSG_STRAIN_YY,VSG_STRAIN_XY
@@ -339,29 +415,23 @@ def load_dataentry(solution_file: pathlib.Path) -> DataEntry:
 def load_dataset(
     dataset_parameters: DatasetParameters, *, disable_throwaway: bool
 ) -> Dataset:
-    solution_files = get_solution_files(dataset_parameters.working_dir)
+    # Use cached raw data entries (for all solution files) keyed by working_dir
+    all_data_entries = _load_or_build_cached_data_entries(dataset_parameters.working_dir)
 
-    data_entries = []
+    total_files = len(all_data_entries)
     print(
-        f"Loading dataset from {dataset_parameters.description} with {len(solution_files)} solution files"
+        f"Loading dataset from {dataset_parameters.description} with {total_files} solution files (pre-throwaway)"
     )
     print(f"Dataset {dataset_parameters.description} parameters: {dataset_parameters}")
-    thrownaway_count = 0
 
-    for i, solution_file in tqdm(
-        enumerate(solution_files),
-        desc=f"Loading solution files for {dataset_parameters.description}",
-        total=len(solution_files),
-    ):
-        if not disable_throwaway and (
-            i < dataset_parameters.throwaway_first_n
-            or i >= len(solution_files) - dataset_parameters.throwaway_last_n
-        ):
-            thrownaway_count += 1
-            continue
-
-        data_entry = load_dataentry(solution_file)
-        data_entries.append(data_entry)
+    if disable_throwaway:
+        data_entries = all_data_entries
+        thrownaway_count = 0
+    else:
+        start_idx = dataset_parameters.throwaway_first_n
+        end_idx = None if dataset_parameters.throwaway_last_n == 0 else -dataset_parameters.throwaway_last_n
+        data_entries = all_data_entries[start_idx:end_idx]
+        thrownaway_count = total_files - len(data_entries)
 
     if thrownaway_count > 0:
         print(
@@ -372,26 +442,6 @@ def load_dataset(
         parameters=dataset_parameters,
         data_entries=data_entries,
     )
-
-    
-def parallel_load_datasets(
-    all_dataset_parameters: list[DatasetParameters],
-    *,
-    disable_throwaway: bool = False,
-) -> list[Dataset]:
-    results = [None] * len(all_dataset_parameters)
-    ctx = get_context("forkserver")
-    with ProcessPoolExecutor(mp_context=ctx) as executor:
-        futures = {
-            executor.submit(load_dataset, dataset_parameters, disable_throwaway=disable_throwaway): idx
-            for idx, dataset_parameters in enumerate(all_dataset_parameters)
-        }
-
-        for future in as_completed(futures):
-            idx = futures[future]
-            results[idx] = future.result()
-
-    return results
 
 
 def get_dataset_y_summary_statistics(
