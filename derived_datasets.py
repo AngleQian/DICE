@@ -20,7 +20,8 @@ from analysis import (
 class DerivedDatasetParameters:
     working_dir: str
     x_seconds_start_dropped: int = 0
-    x_seconds_end_dropped: int = 0
+    # Keep this many seconds after the initial drop. If None or <= 0, keep all remaining
+    x_seconds_keep: Optional[int] = None
     vertical_scaling_factor: float = 1.0
     horizontal_scaling_factor: float = 1.0
     label_override: Optional[ExperimentLabels] = None
@@ -51,43 +52,53 @@ class DerivedDatasetParameters:
 
 # Populate this list with the derived datasets you want to generate
 DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
-    # Liner 1 80p, -35
-    DerivedDatasetParameters(
-        working_dir="0726Midnight_WorkingDir",
-        x_seconds_end_dropped=4300,
-    ),
-    # Liner 1 100p, -47
-    # Liner 1 120p, -55
+    # Liner 1 80p, -35 @ 5000
+    # DerivedDatasetParameters(
+    #     working_dir="0726Midnight_WorkingDir",
+    #     x_seconds_keep=15000,
+    #     vertical_scaling_factor=1.17,
+    #     offset_compression_factor=0.10,
+    # ),
+    # DerivedDatasetParameters(
+    #     working_dir="0620Midnight_WorkingDir",
+    #     x_seconds_keep=15000,
+    #     vertical_scaling_factor=1.0,
+    #     offset_compression_factor=0.05,
+    # ),
+    # Liner 1 100p, -47 @ 5500
+    # Liner 1 120p, -55 @ 6000
 
-    # Liner 2 80p, -23
-    # Liner 2 100p, -26
-    # Liner 2 120p, -30
+    # Liner 2 80p, -23 @ 3000
+    # Liner 2 100p, -26 @ 3500
+    # Liner 2 120p, -30 @ 4000
 ]
 
 
-def _slice_indices_for_drops(
-    *, num_entries: int, seconds_start_drop: int, seconds_end_drop: int, interval_s: int
+def _slice_indices_for_window(
+    *, num_entries: int, seconds_start_drop: int, seconds_keep: Optional[int], interval_s: int
 ) -> tuple[int, int]:
     """
-    Compute [start_idx, end_idx) to trim time series by wall-clock seconds.
+    Compute [start_idx, end_idx) to trim time series by wall-clock seconds using
+    a head drop plus a fixed-length keep window.
 
     Semantics:
     - seconds_start_drop removes data from the beginning; we round UP to the next
       full frame so we never keep any portion of a requested drop (ceil).
-    - seconds_end_drop removes data from the end; we convert seconds to a frame
-      count and truncate that many frames from the tail (ceil).
+    - seconds_keep defines the duration to keep starting at start_idx; we round UP
+      to ensure the requested duration is fully covered. If None or <= 0, keep all
+      remaining frames after the start drop.
     - Bounds are clamped so the resulting slice is valid: 0 <= start <= end <= N.
     """
-    print(f"DEBUG _slice_indices_for_drops: num_entries={num_entries}, seconds_start_drop={seconds_start_drop}, seconds_end_drop={seconds_end_drop}, interval_s={interval_s}")
-    
-    # Convert requested second-based drops into frame counts using the dataset sampling interval
-    start_idx = int(np.ceil(seconds_start_drop / float(interval_s))) if seconds_start_drop > 0 else 0
-    end_drop_count = int(np.ceil(seconds_end_drop / float(interval_s))) if seconds_end_drop > 0 else 0
-    
-    print(f"DEBUG _slice_indices_for_drops: calculated start_idx={start_idx}, end_drop_count={end_drop_count}")
 
-    # Translate tail drop into an exclusive end index (Python slice uses end-exclusive)
-    end_idx = max(0, num_entries - end_drop_count)
+    # Calculate start index from the seconds to drop at the head
+    start_idx = int(np.ceil(seconds_start_drop / float(interval_s))) if seconds_start_drop > 0 else 0
+
+    # If keep window is provided and positive, compute an exclusive end index
+    if seconds_keep is not None and seconds_keep > 0:
+        keep_count = int(np.ceil(seconds_keep / float(interval_s)))
+        end_idx = start_idx + keep_count
+    else:
+        end_idx = num_entries
 
     # Clamp to valid range and ensure non-decreasing indices
     start_idx = min(start_idx, num_entries)
@@ -136,10 +147,10 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
     ys_nested = dataset.get_displacement_ys_adjusted()
 
     interval = original.time_interval_per_image_s
-    start_idx, end_idx = _slice_indices_for_drops(
+    start_idx, end_idx = _slice_indices_for_window(
         num_entries=len(ys_nested),
         seconds_start_drop=params.x_seconds_start_dropped,
-        seconds_end_drop=params.x_seconds_end_dropped,
+        seconds_keep=params.x_seconds_keep,
         interval_s=interval,
     )
 
