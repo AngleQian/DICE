@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+import logging
 
 
 class ExperimentLabels(Enum):
@@ -278,6 +279,6 @@ def find_dataset_parameters(
 
 if __name__ == "__main__":
     for dataset in ALL_DATASET_PARAMETERS:
-        print(
+        logging.info(
             f"{dataset.description}: ubolt_diameter_px={dataset.ubolt_diameter_px:.2f}, px_to_m={dataset.px_to_m:.6e}"
         )

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import hashlib
 import pickle
 import json
+import logging
 
 from parameters import (
     DatasetParameters,
@@ -17,6 +18,7 @@ from analysis import (
     load_dataset,
     plot_dataset,
 )
+from logging_utils import setup_logging
 
 # Cache configuration for derived datasets
 DERIVED_CACHE_DIR = PROJECT_ROOT / ".cache_derived"
@@ -68,9 +70,10 @@ def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[li
                 ys_cached = payload.get("ys_nested")
                 desc_cached = payload.get("description")
                 if xs_cached is not None and ys_cached is not None and desc_cached is not None:
+                    logging.info(f"Loaded cached derived series for {desc_cached}")
                     return xs_cached, ys_cached, desc_cached
         except Exception as e:
-            print(f"Error loading cached derived series for {key}: {e}")
+            logging.error(f"Error loading cached derived series for {key}: {e}")
             pass  # fall through to rebuild
 
     xs, ys_nested, desc = build_derived_series(params)
@@ -87,7 +90,7 @@ def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[li
         with cache_path.open("wb") as fh:
             pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception as e:
-        print(f"Error saving cached derived series for {key}: {e}")
+        logging.error(f"Error saving cached derived series for {key}: {e}")
         pass  # ignore cache write failures
 
     return xs, ys_nested, desc
@@ -137,23 +140,38 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         working_dir="0726Midnight_WorkingDir",
         x_seconds_total=15000,
         vertical_scaling_factor=1.17,
-        offset_compression_factor=0.6,
+        offset_compression_factor=0.5,
     ),
     DerivedDatasetParameters(
         working_dir="0620Midnight_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=1.0,
-        offset_compression_factor=0.9,
+        vertical_scaling_factor=0.95,
+        offset_compression_factor=0.8,
     ),
     DerivedDatasetParameters(
         working_dir="0621Midnight_WorkingDir",
         x_seconds_total=15000,
         vertical_scaling_factor=1.2,
         horizontal_scaling_factor=0.6,
-        offset_compression_factor=0.8,
+        offset_compression_factor=0.7,
         augment_data=True,
     ),
     # Liner 1 100p, -47 @ 5500
+    DerivedDatasetParameters(
+        working_dir="0601_WorkingDir",
+        x_seconds_total=15000,
+        offset_compression_factor=0.85,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0614_WorkingDir",
+        x_seconds_total=15000,
+        offset_compression_factor=0.85,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0620_WorkingDir",
+        x_seconds_total=15000,
+        offset_compression_factor=0.95,
+    ),
     # Liner 1 120p, -55 @ 6000
 
     # Liner 2 80p, -23 @ 3000
@@ -379,16 +397,16 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
 
 def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> None:
     if len(derived_params) == 0:
-        print("No derived dataset parameters specified; nothing to export.")
+        logging.info("No derived dataset parameters specified; nothing to export.")
         return
 
     # Sort using label override when present
-    derived_params_sorted = sorted(derived_params, key=lambda p: p.effective_label.value)
+    # derived_params_sorted = sorted(derived_params, key=lambda p: p.effective_label.value)
 
     output_file_y = PROJECT_ROOT / "derived_analysis_output_displacement_y.pdf"
 
     plots = []
-    for dp in derived_params_sorted:
+    for dp in derived_params:
         xs, nested_ys, desc = load_or_build_derived_series(dp)
         fig = plot_dataset(xs, nested_ys, desc, "derived displacement y")
         plots.append(fig)
@@ -398,9 +416,10 @@ def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> No
             pdf.savefig(fig)
             plt.close(fig)
 
-    print(f"Exported derived Y displacement plots to: {output_file_y}")
+    logging.info(f"Exported derived Y displacement plots to: {output_file_y}")
 
 
 if __name__ == "__main__":
+    setup_logging()
     export_derived_y_plots(DERIVED_DATASET_PARAMETERS)
 

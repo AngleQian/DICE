@@ -369,13 +369,13 @@ def _load_or_build_cached_data_entries(working_dir: str) -> list[DataEntry]:
                 cached_fingerprint = payload.get("fingerprint", [])
                 if cached_fingerprint == current_fingerprint:
                     data_entries: list[DataEntry] = payload["data_entries"]
-                    print(f"Loaded cached data entries for {working_dir} from {cache_path}")
+                    logging.info(f"Loaded cached data entries for {working_dir} from {cache_path}")
                     return data_entries
         except Exception as e:
-            print(f"Warning: failed to load cache for {working_dir} at {cache_path}: {e}")
+            logging.error(f"Failed to load cache for {working_dir} at {cache_path}: {e}")
 
     # Build and persist cache
-    print(f"Building cache for {working_dir} ...")
+    logging.info(f"Building cache for {working_dir} ...")
     data_entries = _load_all_data_entries_for_working_dir(working_dir)
     payload = {
         "version": CACHE_VERSION,
@@ -386,9 +386,9 @@ def _load_or_build_cached_data_entries(working_dir: str) -> list[DataEntry]:
     try:
         with cache_path.open("wb") as fh:
             pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"Cached data entries for {working_dir} at {cache_path}")
+        logging.info(f"Cached data entries for {working_dir} at {cache_path}")
     except Exception as e:
-        print(f"Warning: failed to write cache for {working_dir} at {cache_path}: {e}")
+        logging.error(f"Failed to write cache for {working_dir} at {cache_path}: {e}")
     return data_entries
 
 
@@ -419,10 +419,10 @@ def load_dataset(
     all_data_entries = _load_or_build_cached_data_entries(dataset_parameters.working_dir)
 
     total_files = len(all_data_entries)
-    print(
+    logging.info(
         f"Loading dataset from {dataset_parameters.description} with {total_files} solution files (pre-throwaway)"
     )
-    print(f"Dataset {dataset_parameters.description} parameters: {dataset_parameters}")
+    logging.info(f"Dataset {dataset_parameters.description} parameters: {dataset_parameters}")
 
     if disable_throwaway:
         data_entries = all_data_entries
@@ -434,7 +434,7 @@ def load_dataset(
         thrownaway_count = total_files - len(data_entries)
 
     if thrownaway_count > 0:
-        print(
+        logging.info(
             f"Thrown away {thrownaway_count} solution files for dataset {dataset_parameters.description}"
         )
 
@@ -528,9 +528,9 @@ def single_output_file_driver(
     parameters: list[DatasetParameters], analysis_parameters: AnalysisParameters
 ) -> None:
     t = time.time()
-    print(f"Running analysis")
-    print(f"Analysis parameters: {analysis_parameters}")
-    print(f"Number of datasets: {len(parameters)}")
+    logging.info("Running analysis")
+    logging.info(f"Analysis parameters: {analysis_parameters}")
+    logging.info(f"Number of datasets: {len(parameters)}")
 
     output_file_y = PROJECT_ROOT / "analysis_output_displacement_y.pdf"
     output_file_x = PROJECT_ROOT / "analysis_output_displacement_x.pdf"
@@ -549,7 +549,7 @@ def single_output_file_driver(
     #     parameters,
     #     disable_throwaway=analysis_parameters.disable_throwaway,
     # )
-    print(f"Loaded {len(datasets)} datasets in {time.time() - t:.2f} seconds")
+    logging.info(f"Loaded {len(datasets)} datasets in {time.time() - t:.2f} seconds")
 
     summary_statistics_y = [
         get_dataset_y_summary_statistics(dataset) for dataset in datasets
@@ -630,7 +630,7 @@ def single_output_file_driver(
                     for line in detailed_output:
                         file.write(line + "\n")
 
-    print(f"Finished analysis in {time.time() - t:.2f} seconds")
+    logging.info(f"Finished analysis in {time.time() - t:.2f} seconds")
 
 
 if __name__ == "__main__":

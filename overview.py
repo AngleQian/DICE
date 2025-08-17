@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Union, List
 from tabulate import tabulate
 from collections import defaultdict
+import logging
 
 
 @dataclass
@@ -272,12 +273,12 @@ def export_dataset_overview_table(datasets: List[DatasetOverview], output_path: 
     with open(output_path, "w") as f:
         f.write(table)
 
-    print(f"Dataset overview exported to: {output_path}")
+    logging.info(f"Dataset overview exported to: {output_path}")
 
     
 if __name__ == "__main__":
     for dp in ALL_DATASET_PARAMETERS:
         if dp.working_dir not in [d.working_dir for d in ALL_DATASET_OVERVIEWS]:
-            print(f"Warning: No overview entry for working_dir: {dp.working_dir} (label: {dp.label})")
+            logging.error(f"No overview entry for working_dir: {dp.working_dir} (label: {dp.label})")
 
     export_dataset_overview_table(ALL_DATASET_OVERVIEWS, "dataset_overview.txt")

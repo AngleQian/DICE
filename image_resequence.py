@@ -1,4 +1,5 @@
 import pathlib
+import logging
 
 PROJECT_ROOT = pathlib.Path("/Users/xuxin/Documents/Dice/")
 
@@ -47,11 +48,11 @@ def driver():
             try:
                 if not dry_run:
                     copy_image(input_path, output_path)
-                    print(f"Copied {input_path} to {output_path}")
+                    logging.info(f"Copied {input_path} to {output_path}")
                 else:
-                    print(f"Would copy {input_path} to {output_path}")
+                    logging.info(f"Would copy {input_path} to {output_path}")
             except FileNotFoundError as e:
-                print(e)
+                logging.error(str(e))
 
             output_index += 1
             
