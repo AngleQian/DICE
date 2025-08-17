@@ -1,8 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional, List
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
+import hashlib
+import pickle
+import json
 
 from parameters import (
     DatasetParameters,
@@ -14,6 +17,80 @@ from analysis import (
     load_dataset,
     plot_dataset,
 )
+
+# Cache configuration for derived datasets
+DERIVED_CACHE_DIR = PROJECT_ROOT / ".cache_derived"
+DERIVED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+DERIVED_CACHE_VERSION = 1
+
+
+def _params_dict(p: "DerivedDatasetParameters") -> dict:
+    d = asdict(p)
+    # Normalize Enum to string for stable hashing
+    label_override = d.get("label_override")
+    if label_override is not None:
+        d["label_override"] = (
+            p.label_override.value if isinstance(p.label_override, ExperimentLabels) else str(label_override)
+        )
+    return d
+
+
+def _params_hash(d: dict) -> str:
+    payload = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:12]
+
+
+def _cache_path_for_key(key: str) -> object:
+    return DERIVED_CACHE_DIR / f"{key}.pkl"
+
+
+def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[list[float], list[list[float]], str]:
+    """
+    Transparent loader with file cache. If cache exists for params, load it;
+    otherwise build via `build_derived_series`, persist, and return.
+    """
+    DERIVED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    params_d = _params_dict(params)
+    key = _params_hash(params_d)
+    cache_path = _cache_path_for_key(key)
+
+    if cache_path.exists():
+        try:
+            with cache_path.open("rb") as fh:
+                payload = pickle.load(fh)
+            if (
+                isinstance(payload, dict)
+                and payload.get("version") == DERIVED_CACHE_VERSION
+                and payload.get("key") == key
+            ):
+                xs_cached = payload.get("xs")
+                ys_cached = payload.get("ys_nested")
+                desc_cached = payload.get("description")
+                if xs_cached is not None and ys_cached is not None and desc_cached is not None:
+                    return xs_cached, ys_cached, desc_cached
+        except Exception as e:
+            print(f"Error loading cached derived series for {key}: {e}")
+            pass  # fall through to rebuild
+
+    xs, ys_nested, desc = build_derived_series(params)
+
+    try:
+        payload = {
+            "version": DERIVED_CACHE_VERSION,
+            "key": key,
+            "params": params_d,
+            "xs": xs,
+            "ys_nested": ys_nested,
+            "description": desc,
+        }
+        with cache_path.open("wb") as fh:
+            pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as e:
+        print(f"Error saving cached derived series for {key}: {e}")
+        pass  # ignore cache write failures
+
+    return xs, ys_nested, desc
 
 
 @dataclass
@@ -312,7 +389,7 @@ def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> No
 
     plots = []
     for dp in derived_params_sorted:
-        xs, nested_ys, desc = build_derived_series(dp)
+        xs, nested_ys, desc = load_or_build_derived_series(dp)
         fig = plot_dataset(xs, nested_ys, desc, "derived displacement y")
         plots.append(fig)
 

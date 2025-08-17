@@ -5,3 +5,4 @@ analysis_output*.pdf
 dataset_overview.txt
 __pycache__
 .cache
+.cache_derived
