@@ -24,6 +24,7 @@ from logging_utils import setup_logging
 DERIVED_CACHE_DIR = PROJECT_ROOT / ".cache_derived"
 DERIVED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DERIVED_CACHE_VERSION = 1
+_DERIVED_CACHE_KEYS_USED: set[str] = set()
 
 
 def _params_dict(p: "DerivedDatasetParameters") -> dict:
@@ -70,6 +71,7 @@ def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[li
                 ys_cached = payload.get("ys_nested")
                 desc_cached = payload.get("description")
                 if xs_cached is not None and ys_cached is not None and desc_cached is not None:
+                    _DERIVED_CACHE_KEYS_USED.add(key)
                     logging.info(f"Loaded cached derived series for {desc_cached}")
                     return xs_cached, ys_cached, desc_cached
         except Exception as e:
@@ -93,7 +95,24 @@ def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[li
         logging.error(f"Error saving cached derived series for {key}: {e}")
         pass  # ignore cache write failures
 
+    # Consider newly built entries as used to avoid immediate cleanup
+    _DERIVED_CACHE_KEYS_USED.add(key)
+
     return xs, ys_nested, desc
+
+
+def clean_unused_derived_cache(used_keys: set[str]) -> None:
+    """Delete cache files in DERIVED_CACHE_DIR whose keys were not used in this run."""
+    removed = 0
+    for p in DERIVED_CACHE_DIR.glob("*.pkl"):
+        key = p.stem
+        if key not in used_keys:
+            try:
+                p.unlink()
+                removed += 1
+            except Exception as e:
+                logging.error(f"Failed to remove unused cache {p}: {e}")
+    logging.info(f"Derived cache cleanup removed {removed} file(s)")
 
 
 @dataclass
@@ -415,6 +434,9 @@ def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> No
         for fig in plots:
             pdf.savefig(fig)
             plt.close(fig)
+
+    # Clean unused cache after successful export
+    clean_unused_derived_cache(_DERIVED_CACHE_KEYS_USED)
 
     logging.info(f"Exported derived Y displacement plots to: {output_file_y}")
 
