@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import Optional, List
+from typing import Optional, List, Callable
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
@@ -35,6 +35,16 @@ def _params_dict(p: "DerivedDatasetParameters") -> dict:
         d["label_override"] = (
             p.label_override.value if isinstance(p.label_override, ExperimentLabels) else str(label_override)
         )
+    # Replace function objects with stable identifiers for hashing
+    if hasattr(p, "function_adjustment"):
+        func_obj = getattr(p, "function_adjustment")
+        if func_obj is not None:
+            d["function_adjustment"] = {
+                "name": getattr(func_obj, "__name__", "<lambda>"),
+                "fp": function_fingerprint(func_obj),
+            }
+        else:
+            d["function_adjustment"] = None
     return d
 
 
@@ -45,6 +55,60 @@ def _params_hash(d: dict) -> str:
 
 def _cache_path_for_key(key: str) -> object:
     return DERIVED_CACHE_DIR / f"{key}.pkl"
+
+
+def _safe_repr(obj: object) -> str:
+    try:
+        return repr(obj)
+    except Exception:
+        return f"<unrepr:{type(obj).__name__}>"
+
+
+def function_fingerprint(func: object) -> str:
+    """Create a short, stable fingerprint for a Python function/lambda, including its
+    bytecode, constants, defaults, and closure values when available.
+    """
+    try:
+        import hashlib as _hl
+        f = func  # alias
+        code = getattr(f, "__code__", None)
+        # Collect components likely to change when the function body or captured
+        # values change
+        pieces = {
+            "module": getattr(f, "__module__", None),
+            "qualname": getattr(f, "__qualname__", None),
+            "defaults": getattr(f, "__defaults__", None),
+            "kwdefaults": getattr(f, "__kwdefaults__", None),
+        }
+        if code is not None:
+            pieces.update({
+                "co_code": getattr(code, "co_code", b"").hex(),
+                "co_consts": [_safe_repr(c) for c in getattr(code, "co_consts", tuple())],
+                "co_names": list(getattr(code, "co_names", tuple())),
+                "co_varnames": list(getattr(code, "co_varnames", tuple())),
+                "co_freevars": list(getattr(code, "co_freevars", tuple())),
+                "co_argcount": getattr(code, "co_argcount", 0),
+                "co_kwonlyargcount": getattr(code, "co_kwonlyargcount", 0),
+                "co_posonlyargcount": getattr(code, "co_posonlyargcount", 0),
+            })
+        closure_vals = None
+        closure = getattr(f, "__closure__", None)
+        if closure:
+            closure_vals = [_safe_repr(c.cell_contents) for c in closure]
+        pieces["closure_vals"] = closure_vals
+
+        payload = json.dumps(pieces, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return _hl.sha1(payload).hexdigest()[:16]
+    except Exception:
+        # Fallback to name to avoid hard failure
+        return getattr(func, "__name__", "custom_function")
+
+
+def two_points_interpolation(p1_x: float, p1_y: float, p2_x: float, p2_y: float, x: float) -> float:
+    """
+    Interpolate a value between two points using linear interpolation.
+    """
+    return p1_y + (p2_y - p1_y) * (x - p1_x) / (p2_x - p1_x)
 
 
 def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[list[float], list[list[float]], str]:
@@ -130,6 +194,9 @@ class DerivedDatasetParameters:
     # Data augmentation: if enabled, replace the series with a synthetic line-fit + noise
     augment_data: bool = False
     augmentation_noise_scale: float = 1.0  # Multiplier on estimated noise std
+    # Optional pointwise adjustment function applied AFTER horizontal scaling and BEFORE augmentation
+    # Signature: (x: float, y: float) -> float. Default is identity (no-op) when None.
+    function_adjustment: Optional[Callable[[float, float], float]] = None
 
     @property
     def original_parameters(self) -> DatasetParameters:
@@ -175,23 +242,31 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         offset_compression_factor=0.7,
         augment_data=True,
     ),
-    # Liner 1 100p, -47 @ 5500
+    # Liner 1 100p, -47 @ 6000
     DerivedDatasetParameters(
         working_dir="0601_WorkingDir",
         x_seconds_total=15000,
+        horizontal_scaling_factor=0.85,
         offset_compression_factor=0.85,
+        function_adjustment=lambda x, y: two_points_interpolation(9000, -45, 13000, -42, x) + 47 if x > 9000 else 0,
+        augment_data=True,
     ),
     DerivedDatasetParameters(
         working_dir="0614_WorkingDir",
         x_seconds_total=15000,
+        horizontal_scaling_factor=0.85,
+        vertical_scaling_factor=0.85,
         offset_compression_factor=0.85,
+        function_adjustment=lambda x, y: 3 if x > 7000 else 0,
+        augment_data=True,
     ),
     DerivedDatasetParameters(
         working_dir="0620_WorkingDir",
         x_seconds_total=15000,
         offset_compression_factor=0.95,
+        function_adjustment=lambda x, y: two_points_interpolation(10000, -45, 15000, -33, x) + 47 if x > 10000 else 0,
     ),
-    # Liner 1 120p, -55 @ 6000
+    # Liner 1 120p, -55 @ 7000
 
     # Liner 2 80p, -23 @ 3000
     # Liner 2 100p, -26 @ 3500
@@ -392,6 +467,19 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
 
     # Rebuild xs as uniform grid with original interval after horizontal scaling
     xs = [i * interval for i in range(len(series_after_h))]
+
+    # Optional function adjustment on (x, y) pairs before any augmentation/extension
+    if params.function_adjustment is not None and len(series_after_h) > 0:
+        try:
+            series_after_h = np.array(
+                [
+                    float(params.function_adjustment(x_val, y_val)) + y_val
+                    for x_val, y_val in zip(xs, series_after_h)
+                ],
+                dtype=float,
+            )
+        except Exception as e:
+            logging.error(f"function_adjustment failed, skipping adjustment: {e}")
 
     # After horizontal scaling, if still shorter than target total seconds, extend to reach it
     # Gate this extension on explicit opt-in via augment_data
