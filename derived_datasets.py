@@ -20,8 +20,8 @@ from analysis import (
 class DerivedDatasetParameters:
     working_dir: str
     x_seconds_start_dropped: int = 0
-    # Keep this many seconds after the initial drop. If None or <= 0, keep all remaining
-    x_seconds_keep: Optional[int] = None
+    # Target final total seconds after all adjustments. If None or <= 0, don't enforce a total.
+    x_seconds_total: Optional[int] = None
     vertical_scaling_factor: float = 1.0
     horizontal_scaling_factor: float = 1.0
     label_override: Optional[ExperimentLabels] = None
@@ -56,23 +56,25 @@ class DerivedDatasetParameters:
 # Populate this list with the derived datasets you want to generate
 DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     # Liner 1 80p, -35 @ 5000
-    # DerivedDatasetParameters(
-    #     working_dir="0726Midnight_WorkingDir",
-    #     x_seconds_keep=15000,
-    #     vertical_scaling_factor=1.17,
-    #     offset_compression_factor=0.7,
-    # ),
-    # DerivedDatasetParameters(
-    #     working_dir="0620Midnight_WorkingDir",
-    #     x_seconds_keep=15000,
-    #     vertical_scaling_factor=1.0,
-    #     offset_compression_factor=0.9,
-    # ),
+    DerivedDatasetParameters(
+        working_dir="0726Midnight_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.17,
+        offset_compression_factor=0.6,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0620Midnight_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.0,
+        offset_compression_factor=0.9,
+    ),
     DerivedDatasetParameters(
         working_dir="0621Midnight_WorkingDir",
-        x_seconds_keep=15000,
+        x_seconds_total=15000,
         vertical_scaling_factor=1.2,
+        horizontal_scaling_factor=0.6,
         offset_compression_factor=0.8,
+        augment_data=True,
     ),
     # Liner 1 100p, -47 @ 5500
     # Liner 1 120p, -55 @ 6000
@@ -83,36 +85,10 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
 ]
 
 
-def _slice_indices_for_window(
-    *, num_entries: int, seconds_start_drop: int, seconds_keep: Optional[int], interval_s: int
-) -> tuple[int, int]:
-    """
-    Compute [start_idx, end_idx) to trim time series by wall-clock seconds using
-    a head drop plus a fixed-length keep window.
-
-    Semantics:
-    - seconds_start_drop removes data from the beginning; we round UP to the next
-      full frame so we never keep any portion of a requested drop (ceil).
-    - seconds_keep defines the duration to keep starting at start_idx; we round UP
-      to ensure the requested duration is fully covered. If None or <= 0, keep all
-      remaining frames after the start drop.
-    - Bounds are clamped so the resulting slice is valid: 0 <= start <= end <= N.
-    """
-
-    # Calculate start index from the seconds to drop at the head
+def _start_drop_index(*, num_entries: int, seconds_start_drop: int, interval_s: int) -> int:
+    """Compute start index after dropping the requested head seconds (ceil to full frames)."""
     start_idx = int(np.ceil(seconds_start_drop / float(interval_s))) if seconds_start_drop > 0 else 0
-
-    # If keep window is provided and positive, compute an exclusive end index
-    if seconds_keep is not None and seconds_keep > 0:
-        keep_count = int(np.ceil(seconds_keep / float(interval_s)))
-        end_idx = start_idx + keep_count
-    else:
-        end_idx = num_entries
-
-    # Clamp to valid range and ensure non-decreasing indices
-    start_idx = min(start_idx, num_entries)
-    end_idx = min(max(end_idx, start_idx), num_entries)
-    return start_idx, end_idx
+    return min(start_idx, num_entries)
 
 
 def _moving_average_centered(values: np.ndarray, window: int) -> np.ndarray:
@@ -139,6 +115,98 @@ def _apply_noise_suppression(means: np.ndarray, window: int, compress: float) ->
     return avg + compress * (means - avg)
 
 
+def _dropout_by_blocks(values: np.ndarray, keep_fraction: float, block_size: int = 100) -> np.ndarray:
+    """Deterministically drop points in fixed-size blocks to keep ~keep_fraction of points.
+
+    Points to keep within each block are sampled as evenly as possible to avoid clustering.
+    """
+    if keep_fraction >= 1.0:
+        return values.copy()
+    if keep_fraction <= 0.0:
+        # Keep at least one point overall to avoid empty series
+        return values[:1].copy()
+
+    kept_indices: list[int] = []
+    n = len(values)
+    for start in range(0, n, block_size):
+        end = min(start + block_size, n)
+        block_len = end - start
+        keep_count = max(1, int(round(keep_fraction * block_len)))
+        # Evenly spaced indices in [0, block_len-1]
+        local = np.linspace(0, block_len - 1, num=keep_count, dtype=int)
+        kept_indices.extend((start + local).tolist())
+
+    kept_indices = sorted(set(kept_indices))
+    return values[kept_indices]
+
+
+def _fit_exponential_decay(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
+    """Fit y ≈ c + b * exp(-t / tau) by linearizing with an estimated asymptote c.
+
+    Returns (c, b, tau). Falls back to a near-linear fit if degeneracies occur.
+    """
+    if len(x) < 2 or float(np.std(x)) == 0.0:
+        c = float(y[-1] if len(y) > 0 else 0.0)
+        b = float((y[0] - c) if len(y) > 0 else 0.0)
+        tau = float(x[-1] - x[0] + 1.0) if len(x) > 1 else 1.0
+        return c, b, tau
+
+    # Estimate asymptote as the mean of the last 10% (min 5) points
+    tail = max(5, int(0.1 * len(y)))
+    c = float(np.mean(y[-tail:]))
+    z = y - c
+    # Ensure positivity for log, clamp very small values
+    eps = 1e-12
+    z = np.maximum(z, eps)
+    lnz = np.log(z)
+
+    # Linear regression: lnz ≈ ln(b) - t/τ
+    slope, intercept = np.polyfit(x, lnz, 1)
+    if slope >= 0:  # Non-decaying fit; fallback to small decay
+        tau = max(1.0, (x[-1] - x[0]) / 3.0)
+    else:
+        tau = -1.0 / slope
+    b = float(np.exp(intercept))
+    return c, b, tau
+
+
+def _extend_with_exponential(values: np.ndarray, interval_s: int, factor: float, noise_std: float) -> np.ndarray:
+    """Extend the series length by factor (>1) using exponential decay fit plus Gaussian noise."""
+    n = len(values)
+    if n == 0 or factor <= 1.0:
+        return values.copy()
+
+    target_n = int(round(factor * n))
+    extra = max(0, target_n - n)
+    if extra == 0:
+        return values.copy()
+
+    x = np.arange(n, dtype=float) * float(interval_s)
+    c, b, tau = _fit_exponential_decay(x, values)
+    x_extra = (np.arange(n, n + extra, dtype=float)) * float(interval_s)
+    y_extra_mean = c + b * np.exp(-(x_extra - x[0]) / tau)
+
+    rng = np.random.default_rng()
+    y_extra = y_extra_mean + rng.normal(0.0, noise_std, size=extra)
+    return np.concatenate([values, y_extra.astype(float)])
+
+
+def _extend_exponential_to_length(values: np.ndarray, interval_s: int, target_n: int, noise_std: float) -> np.ndarray:
+    """Extend the series to exactly target_n points using an exponential decay fit plus noise."""
+    n = len(values)
+    if target_n <= n:
+        return values.copy()
+
+    x = np.arange(n, dtype=float) * float(interval_s)
+    c, b, tau = _fit_exponential_decay(x, values)
+    extra = target_n - n
+    x_extra = (np.arange(n, n + extra, dtype=float)) * float(interval_s)
+    y_extra_mean = c + b * np.exp(-(x_extra - x[0]) / tau)
+    rng = np.random.default_rng()
+    y_extra = y_extra_mean + rng.normal(0.0, noise_std, size=extra)
+    return np.concatenate([values, y_extra.astype(float)])
+
+
 def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float], list[list[float]], str]:
     """
     Build the derived time axis and nested displacement-Y values from the original dataset,
@@ -156,59 +224,78 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
     ys_nested = dataset.get_displacement_ys_adjusted()
 
     interval = original.time_interval_per_image_s
-    start_idx, end_idx = _slice_indices_for_window(
+    start_idx = _start_drop_index(
         num_entries=len(ys_nested),
         seconds_start_drop=params.x_seconds_start_dropped,
-        seconds_keep=params.x_seconds_keep,
         interval_s=interval,
     )
 
-    # Apply trims using calculated slice indices
-    xs = xs[start_idx:end_idx]
-    ys_nested = ys_nested[start_idx:end_idx]
-
-    # Apply horizontal (time) scaling if requested
-    if params.horizontal_scaling_factor != 1.0:
-        xs = [x * params.horizontal_scaling_factor for x in xs]
+    # Apply head drop only; no tail trimming here
+    xs = xs[start_idx:]
+    ys_nested = ys_nested[start_idx:]
 
     # Apply vertical (measurement) scaling if requested
     if params.vertical_scaling_factor != 1.0:
         ys_nested = [[y * params.vertical_scaling_factor for y in sub] for sub in ys_nested]
 
-    # Compute per-image means
-    means = np.array([float(np.mean(sub)) for sub in ys_nested], dtype=float)
+    # Compute the target total number of samples (always set)
+    desired_n_total = (
+        int(np.ceil(params.x_seconds_total / float(interval)))
+        if (params.x_seconds_total is not None and params.x_seconds_total > 0)
+        else len(ys_nested)
+    )
 
-    # Always apply noise suppression first
+    # Compute per-image means and apply noise suppression first
+    means = np.array([float(np.mean(sub)) for sub in ys_nested], dtype=float)
     means_suppressed = _apply_noise_suppression(
         means,
         window=params.moving_average_window_points,
         compress=params.offset_compression_factor,
     )
 
-    if params.augment_data:
-        # Fit a line to the suppressed series and simulate noise based on recent suppressed residuals
-        x_arr = np.array(xs, dtype=float)
-        if len(x_arr) >= 2 and np.std(x_arr) > 0:
-            slope, intercept = np.polyfit(x_arr, means_suppressed, 1)
-            fitted = slope * x_arr + intercept
-            residuals = means_suppressed - fitted
-        else:
-            # Degenerate case: not enough points or zero time variance; treat as constant
-            slope, intercept = 0.0, float(means_suppressed[-1] if len(means_suppressed) > 0 else 0.0)
-            fitted = np.full_like(means_suppressed, intercept)
-            residuals = means_suppressed - fitted
-
-        window_pts = params.moving_average_window_points if params.moving_average_window_points > 1 else len(residuals)
-        window_pts = min(window_pts, len(residuals)) if len(residuals) > 0 else 0
-        noise_std = float(np.std(residuals[-window_pts:])) if window_pts > 0 else 0.0
-
-        rng = np.random.default_rng()
-        simulated_noise = rng.normal(loc=0.0, scale=noise_std * params.augmentation_noise_scale, size=len(x_arr))
-        augmented = fitted + simulated_noise
-        ys_nested_adjusted = [[float(v)] for v in augmented.tolist()]
+    # Determine noise level from the last window of suppressed residuals against an exponential fit
+    # (used for exponential extension noise below)
+    x_arr = np.array(xs, dtype=float)
+    if len(x_arr) >= 2 and np.std(x_arr) > 0:
+        c_fit, b_fit, tau_fit = _fit_exponential_decay(x_arr, means_suppressed)
+        fitted_exp = c_fit + b_fit * np.exp(-(x_arr - x_arr[0]) / tau_fit)
+        residuals_suppressed = means_suppressed - fitted_exp
     else:
-        # No augmentation; use suppressed series as-is
-        ys_nested_adjusted = [[val] for val in means_suppressed.tolist()]
+        residuals_suppressed = np.zeros_like(means_suppressed)
+    win_pts = params.moving_average_window_points if params.moving_average_window_points > 1 else len(residuals_suppressed)
+    win_pts = min(win_pts, len(residuals_suppressed)) if len(residuals_suppressed) > 0 else 0
+    base_noise_std = float(np.std(residuals_suppressed[-win_pts:])) if win_pts > 0 else 0.0
+
+    # Apply new horizontal scaling semantics
+    series_after_h: np.ndarray
+    if params.horizontal_scaling_factor < 1.0:
+        keep_fraction = max(0.0, min(1.0, params.horizontal_scaling_factor))
+        series_after_h = _dropout_by_blocks(means_suppressed, keep_fraction, block_size=100)
+    elif params.horizontal_scaling_factor > 1.0:
+        series_after_h = _extend_with_exponential(means_suppressed, interval_s=interval, factor=params.horizontal_scaling_factor, noise_std=base_noise_std * params.augmentation_noise_scale)
+    else:
+        series_after_h = means_suppressed
+
+    # Rebuild xs as uniform grid with original interval after horizontal scaling
+    xs = [i * interval for i in range(len(series_after_h))]
+
+    # After horizontal scaling, if still shorter than target total seconds, extend to reach it
+    # Gate this extension on explicit opt-in via augment_data
+    if len(series_after_h) < desired_n_total and params.augment_data:
+        series_after_h = _extend_exponential_to_length(
+            series_after_h,
+            interval_s=interval,
+            target_n=desired_n_total,
+            noise_std=base_noise_std * params.augmentation_noise_scale,
+        )
+        xs = [i * interval for i in range(len(series_after_h))]
+    
+    # If longer than target total, trim to the desired length (always applied)
+    if len(series_after_h) > desired_n_total:
+        series_after_h = series_after_h[:desired_n_total]
+        xs = [i * interval for i in range(len(series_after_h))]
+
+    ys_nested_adjusted = [[float(v)] for v in series_after_h.tolist()]
 
     return xs, ys_nested_adjusted, params.description
 
