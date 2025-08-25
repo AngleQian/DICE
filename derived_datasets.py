@@ -182,21 +182,26 @@ def clean_unused_derived_cache(used_keys: set[str]) -> None:
 @dataclass
 class DerivedDatasetParameters:
     working_dir: str
+    label_override: Optional[ExperimentLabels] = None
+
     x_seconds_start_dropped: int = 0
     # Target final total seconds after all adjustments. If None or <= 0, don't enforce a total.
     x_seconds_total: Optional[int] = None
+
     vertical_scaling_factor: float = 1.0
     horizontal_scaling_factor: float = 1.0
-    label_override: Optional[ExperimentLabels] = None
+    
     # Noise suppression: centered moving average window (points) and compression factor in [0,1]
     moving_average_window_points: int = 100
     offset_compression_factor: float = 1.0  # 1.0 = no suppression; 0.0 = fully average
-    # Data augmentation: if enabled, replace the series with a synthetic line-fit + noise
-    augment_data: bool = False
-    augmentation_noise_scale: float = 1.0  # Multiplier on estimated noise std
+
     # Optional pointwise adjustment function applied AFTER horizontal scaling and BEFORE augmentation
     # Signature: (x: float, y: float) -> float. Default is identity (no-op) when None.
     function_adjustment: Optional[Callable[[float, float], float]] = None
+
+    # Data augmentation: if enabled, replace the series with a synthetic line-fit + noise
+    augment_data: bool = False
+    augmentation_noise_scale: float = 1.0  # Multiplier on estimated noise std
 
     @property
     def original_parameters(self) -> DatasetParameters:
@@ -242,13 +247,13 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         offset_compression_factor=0.7,
         augment_data=True,
     ),
-    # Liner 1 100p, -47 @ 6000
+    # Liner 1 100p, -47 @ 6500
     DerivedDatasetParameters(
         working_dir="0601_WorkingDir",
         x_seconds_total=15000,
         horizontal_scaling_factor=0.85,
         offset_compression_factor=0.85,
-        function_adjustment=lambda x, y: two_points_interpolation(9000, -45, 13000, -42, x) + 47 if x > 9000 else 0,
+        function_adjustment=lambda x, y: two_points_interpolation(9000, 0, 13000, 3, x) if x > 9000 else 0,
         augment_data=True,
     ),
     DerivedDatasetParameters(
@@ -264,13 +269,93 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         working_dir="0620_WorkingDir",
         x_seconds_total=15000,
         offset_compression_factor=0.95,
-        function_adjustment=lambda x, y: two_points_interpolation(10000, -45, 15000, -33, x) + 47 if x > 10000 else 0,
+        function_adjustment=lambda x, y: two_points_interpolation(10000, 0, 15000, 12, x) if x > 10000 else 0,
     ),
-    # Liner 1 120p, -55 @ 7000
+    # Liner 1 120p, -55 @ 7500
+    DerivedDatasetParameters(
+        working_dir="0615_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=0.50,
+        horizontal_scaling_factor=0.7,
+        offset_compression_factor=2,
+        function_adjustment=lambda x, y: two_points_interpolation(7500, 0, 15000, 5, x) if x > 7500 else 0,
+        augment_data=True,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0622_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.75,
+        horizontal_scaling_factor=1.25,
+        offset_compression_factor=0.7,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0725_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.6,
+        horizontal_scaling_factor=1.7,
+        offset_compression_factor=0.6,
+    ),
 
-    # Liner 2 80p, -23 @ 3000
-    # Liner 2 100p, -26 @ 3500
-    # Liner 2 120p, -30 @ 4000
+    # Liner 2 80p, -23 @ 4000
+    DerivedDatasetParameters(
+        working_dir="0629_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.1,
+        horizontal_scaling_factor=1.8,
+        offset_compression_factor=0.4,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0704Midnight_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.1,
+        horizontal_scaling_factor=2.5,
+        offset_compression_factor=0.5,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0706Dinner_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=0.9,
+        offset_compression_factor=0.6,
+    ),
+    # Liner 2 100p, -26 @ 4500
+    DerivedDatasetParameters(
+        working_dir="0628Midnight_WorkingDir",
+        x_seconds_total=15000,
+        horizontal_scaling_factor=0.7,
+        offset_compression_factor=0.5,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0704Dinner_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.15,
+        horizontal_scaling_factor=1.7,
+        offset_compression_factor=0.6,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0705Dinner_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=0.8,
+        horizontal_scaling_factor=1.7,
+        offset_compression_factor=0.6,
+    ),
+    # Liner 2 120p, -30 @ 4500
+    DerivedDatasetParameters(
+        working_dir="0706_WorkingDir",
+        x_seconds_total=15000,
+        offset_compression_factor=0.8,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0707_WorkingDir",
+        x_seconds_total=15000,
+        offset_compression_factor=0.8,
+    ),
+    DerivedDatasetParameters(
+        working_dir="0726_WorkingDir",
+        x_seconds_total=15000,
+        vertical_scaling_factor=1.7,
+        offset_compression_factor=0.65,
+        function_adjustment=lambda x, y: -3 if x > 11000 else 0
+    ),
 ]
 
 
@@ -294,11 +379,11 @@ def _moving_average_centered(values: np.ndarray, window: int) -> np.ndarray:
 
 def _apply_noise_suppression(means: np.ndarray, window: int, compress: float) -> np.ndarray:
     """
-    Compress deviations from the centered moving average by factor `compress`.
+    Compress/amplify deviations from the centered moving average by factor `compress`.
     new = avg + compress * (orig - avg)
-    - compress=1.0 -> no change; compress=0.0 -> fully smoothed to the moving average
+    - compress=1.0 -> no change; 0<compress<1 -> shrink deviations; compress>1 -> amplify deviations
     """
-    if compress >= 1.0 or window <= 1:
+    if window <= 1:
         return means
     avg = _moving_average_centered(means, window)
     return avg + compress * (means - avg)
@@ -451,9 +536,10 @@ def build_derived_series(params: DerivedDatasetParameters) -> tuple[list[float],
         residuals_suppressed = means_suppressed - fitted_exp
     else:
         residuals_suppressed = np.zeros_like(means_suppressed)
-    win_pts = params.moving_average_window_points if params.moving_average_window_points > 1 else len(residuals_suppressed)
-    win_pts = min(win_pts, len(residuals_suppressed)) if len(residuals_suppressed) > 0 else 0
-    base_noise_std = float(np.std(residuals_suppressed[-win_pts:])) if win_pts > 0 else 0.0
+    # Use a bounded tail window independent of smoothing window to estimate noise
+    tail = int(0.1 * len(residuals_suppressed)) if len(residuals_suppressed) > 0 else 0
+    tail = max(20, min(1000, tail)) if tail > 0 else 0
+    base_noise_std = float(np.std(residuals_suppressed[-tail:])) if tail > 0 else 0.0
 
     # Apply new horizontal scaling semantics
     series_after_h: np.ndarray
