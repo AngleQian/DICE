@@ -165,12 +165,12 @@ def load_or_build_derived_series(params: "DerivedDatasetParameters") -> tuple[li
     return xs, ys_nested, desc
 
 
-def clean_unused_derived_cache(used_keys: set[str]) -> None:
+def clean_unused_derived_cache() -> None:
     """Delete cache files in DERIVED_CACHE_DIR whose keys were not used in this run."""
     removed = 0
-    for p in DERIVED_CACHE_DIR.glob("*.pkl"):
+    for p in DERIVED_CACHE_DIR.glob("*"):
         key = p.stem
-        if key not in used_keys:
+        if key not in _DERIVED_CACHE_KEYS_USED:
             try:
                 p.unlink()
                 removed += 1
@@ -609,8 +609,7 @@ def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> No
             pdf.savefig(fig)
             plt.close(fig)
 
-    # Clean unused cache after successful export
-    clean_unused_derived_cache(_DERIVED_CACHE_KEYS_USED)
+    clean_unused_derived_cache()
 
     logging.info(f"Exported derived Y displacement plots to: {output_file_y}")
 

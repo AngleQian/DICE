@@ -13,6 +13,23 @@ class ExperimentLabels(Enum):
     LINER_2_80P = "liner_2_80p"
     LINER_2_120P = "liner_2_120p"
 
+    @property
+    def pretty_string(self) -> str:
+        if self == ExperimentLabels.LINER_1_100P:
+            return "Liner 1 100 percent"
+        elif self == ExperimentLabels.LINER_1_80P:
+            return "Liner 1 80 percent"
+        elif self == ExperimentLabels.LINER_1_120P:
+            return "Liner 1 120 percent"
+        elif self == ExperimentLabels.LINER_2_100P:
+            return "Liner 2 100 percent"
+        elif self == ExperimentLabels.LINER_2_80P:
+            return "Liner 2 80 percent"
+        elif self == ExperimentLabels.LINER_2_120P:
+            return "Liner 2 120 percent"
+        else:
+            raise ValueError(f"Cannot convert to string: {self}")
+
 
 @dataclass
 class DatasetParameters:
