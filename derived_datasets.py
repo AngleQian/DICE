@@ -343,6 +343,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         working_dir="0706_WorkingDir",
         x_seconds_total=15000,
         offset_compression_factor=0.8,
+        augment_data=True,
     ),
     DerivedDatasetParameters(
         working_dir="0707_WorkingDir",

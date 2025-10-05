@@ -220,7 +220,7 @@ def export_results_table_figure(
     snippet_lines.append(r"\midrule")
 
     def _fmt(v: float) -> str:
-        return f"{v:.2f}"
+        return f"{v:.1f}"
 
     for label in labels:
         row_vals: List[str] = []
@@ -291,7 +291,7 @@ def export_avg_results_table_figure() -> str:
         return float(np.mean(vals)) if len(vals) > 0 else float("nan")
 
     def _fmt(v: float) -> str:
-        return f"{v:.2f}"
+        return f"{v:.1f}"
 
     # Build LaTeX table snippet with header row and left label column
     snippet_lines: List[str] = []
