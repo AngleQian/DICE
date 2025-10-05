@@ -15,10 +15,10 @@ from derived_datasets import (
     load_or_build_derived_series,
 )
 from logging_utils import setup_logging
-from result import DatasetResult, get_dataset_result
+from result import RESULT_PARAMETERS, DatasetResult, get_dataset_result
 
 
-FINAL_RESULT_WINDOW_TIME_SECONDS = 30 * 60
+FIGURE_DIR = PROJECT_ROOT / "figures_artifacts"
 
 
 def _set_academic_style() -> None:
@@ -110,7 +110,7 @@ def export_six_by_three_figure(
 
     fig.tight_layout(rect=(0.03, 0.02, 1.0, 0.98))
 
-    output_path = PROJECT_ROOT / "six_by_three_figure.pdf"
+    output_path = FIGURE_DIR / "six_by_three_figure.pdf"
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -151,7 +151,7 @@ def compile_table_snippet_preview(figure_name: str) -> None:
     wrapper_lines.append(r"\end{document}")
     wrapper_src = "\n".join(wrapper_lines)
 
-    wrapper_path = PROJECT_ROOT / f"{figure_name}_wrapper.tex"
+    wrapper_path = FIGURE_DIR / f"{figure_name}_wrapper.tex"
     with wrapper_path.open("w", encoding="utf-8") as fh:
         fh.write(wrapper_src)
 
@@ -165,14 +165,14 @@ def compile_table_snippet_preview(figure_name: str) -> None:
                 f"-jobname={figure_name}",
                 f"{figure_name}_wrapper.tex",
             ],
-            cwd=str(PROJECT_ROOT),
+            cwd=str(FIGURE_DIR),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
         )
-        logging.info(f"Compiled LaTeX to PDF: {(PROJECT_ROOT / (figure_name + '.pdf'))}")
+        logging.info(f"Compiled LaTeX to PDF: {(FIGURE_DIR / (figure_name + '.pdf'))}")
     except subprocess.CalledProcessError as e:
-        log_path = PROJECT_ROOT / f"{figure_name}.log"
+        log_path = FIGURE_DIR / f"{figure_name}.log"
         logging.error(
             f"pdflatex failed with code {e.returncode}. See log at {log_path if log_path.exists() else 'N/A'}"
         )
@@ -192,7 +192,7 @@ def export_results_table_figure(
     - Next 3 columns: each label's three DatasetResult values (y_mean_last_seconds)
     - Final column: average of the three values
 
-    Writes {figure_name}.tex and compiles {figure_name}.pdf in PROJECT_ROOT.
+    Writes {figure_name}.tex and compiles {figure_name}.pdf in FIGURE_DIR.
 
     Returns the LaTeX source string.
     """
@@ -210,7 +210,7 @@ def export_results_table_figure(
             )
 
     # Build table rows (embeddable snippet with table environment)
-    header_cols = ["Label", "Trial 1", "Trial 2", "Trial 3", "Average"]
+    header_cols = ["", "Trial 1", "Trial 2", "Trial 3", "Average"]
     snippet_lines: List[str] = []
     snippet_lines.append(r"\begin{table}[htbp]")
     snippet_lines.append(r"\centering")
@@ -240,7 +240,7 @@ def export_results_table_figure(
 
     latex_snippet_src = "\n".join(snippet_lines)
     # Write embeddable snippet: {figure_name}.tex
-    snippet_path = PROJECT_ROOT / f"{figure_name}.tex"
+    snippet_path = FIGURE_DIR / f"{figure_name}.tex"
     with snippet_path.open("w", encoding="utf-8") as fh:
         fh.write(latex_snippet_src)
 
@@ -249,22 +249,111 @@ def export_results_table_figure(
     return latex_snippet_src
 
 
+def export_avg_results_table_figure() -> str:
+    """
+    Produce a 2x3 LaTeX table of averages of `y_mean_last_seconds`.
+
+    Rows: Liner 1, Liner 2 (shown in a leftmost label column)
+    Columns: 80 percent, 100 percent, 120 percent (shown in a header row)
+
+    Each cell is the average of the three trials for that label.
+
+    Writes avg_results_table.tex and compiles avg_results_table.pdf in FIGURE_DIR.
+
+    Returns the LaTeX source string.
+    """
+    labels_to_results = _collect_results_by_label(DERIVED_DATASET_PARAMETERS)
+
+    # Define grid ordering
+    row_definitions: List[List[ExperimentLabels]] = [
+        [
+            ExperimentLabels.LINER_1_80P,
+            ExperimentLabels.LINER_1_100P,
+            ExperimentLabels.LINER_1_120P,
+        ],
+        [
+            ExperimentLabels.LINER_2_80P,
+            ExperimentLabels.LINER_2_100P,
+            ExperimentLabels.LINER_2_120P,
+        ],
+    ]
+
+    # Validate presence and compute per-label averages
+    def _avg_for_label(label: ExperimentLabels) -> float:
+        if label not in labels_to_results:
+            raise ValueError(f"Missing results for label {label}")
+        results = labels_to_results[label]
+        if len(results) != 3:
+            raise AssertionError(
+                f"Label {label} has {len(results)} results; expected exactly 3"
+            )
+        vals = [r.y_mean_last_seconds for r in results]
+        return float(np.mean(vals)) if len(vals) > 0 else float("nan")
+
+    def _fmt(v: float) -> str:
+        return f"{v:.2f}"
+
+    # Build LaTeX table snippet with header row and left label column
+    snippet_lines: List[str] = []
+    snippet_lines.append(r"\begin{table}[htbp]")
+    snippet_lines.append(r"\centering")
+    snippet_lines.append(r"\begin{tabular}{lrrr}")
+    snippet_lines.append(r"\toprule")
+
+    # Header row for columns
+    header_cols = [
+        "",
+        "80 percent",
+        "100 percent",
+        "120 percent",
+    ]
+    snippet_lines.append(r" {} \\".format(" & ".join(header_cols)))
+    snippet_lines.append(r"\midrule")
+
+    # Two rows: Liner 1 then Liner 2, with left label column
+    row_titles = ["Liner 1", "Liner 2"]
+    for row_idx, row_labels in enumerate(row_definitions):
+        row_vals: List[str] = []
+        row_vals.append(_latex_escape(row_titles[row_idx]))
+        for label in row_labels:
+            row_vals.append(_fmt(_avg_for_label(label)))
+        snippet_lines.append(" {} \\\\".format(" & ".join(row_vals)))
+
+    snippet_lines.append(r"\bottomrule")
+    snippet_lines.append(r"\end{tabular}")
+    label = f"Trials Average of Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes"
+    snippet_lines.append(f"\\caption{{{_latex_escape(label)}}}")
+    snippet_lines.append(f"\\label{{fig:avg_results_table}}")
+    snippet_lines.append(r"\end{table}")
+
+    latex_snippet_src = "\n".join(snippet_lines)
+
+    # Write embeddable snippet and compile PDF preview
+    figure_name = "avg_results_table"
+    snippet_path = FIGURE_DIR / f"{figure_name}.tex"
+    with snippet_path.open("w", encoding="utf-8") as fh:
+        fh.write(latex_snippet_src)
+
+    compile_table_snippet_preview(figure_name)
+    return latex_snippet_src
+
 def export_all_figures() -> None:
     """Main entrypoint to export all figures in one shot."""
     setup_logging()
     labels_to_trials = _collect_trials_by_label(DERIVED_DATASET_PARAMETERS)
     labels_to_results = _collect_results_by_label(DERIVED_DATASET_PARAMETERS)
-    # export_six_by_three_figure(labels_to_trials)
+    export_six_by_three_figure(labels_to_trials)
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_1_80P,
         ExperimentLabels.LINER_1_100P,
         ExperimentLabels.LINER_1_120P,
-    ], "liner_1_results_table", "Liner 1 Results Table")
+    ], "liner_1_results_table", f"Liner 1 Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes")
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_2_80P,
         ExperimentLabels.LINER_2_100P,
         ExperimentLabels.LINER_2_120P,
-    ], "liner_2_results_table", "Liner 2 Results Table")
+    ], "liner_2_results_table", f"Liner 2 Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes")
+    export_avg_results_table_figure()
     clean_unused_derived_cache()
 
 

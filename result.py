@@ -11,7 +11,12 @@ from derived_datasets import (
 
 @dataclass
 class ResultParameters:
-    last_x_seconds: int
+    last_x_minutes: int
+
+    @property
+    def last_x_seconds(self) -> int:
+        return self.last_x_minutes * 60
+
 
 
 @dataclass
@@ -22,7 +27,7 @@ class DatasetResult:
 
 
 # Global instance that callers can modify at runtime if desired
-RESULT_PARAMETERS = ResultParameters(last_x_seconds=30 * 60)
+RESULT_PARAMETERS = ResultParameters(last_x_minutes=30)
 
 
 def _get_dataset_result(
