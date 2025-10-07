@@ -62,7 +62,8 @@ def _collect_results_by_label(
 
 
 def export_six_by_three_figure(
-    labels_to_trials: Dict[ExperimentLabels, List[Tuple[List[float], List[List[float]], str]]]
+    labels_to_trials: Dict[ExperimentLabels, List[Tuple[List[float], List[List[float]], str]]],
+    labels_to_results: Dict[ExperimentLabels, List[DatasetResult]],
 ) -> None:
     """Export a 6x3 grid figure: rows are labels, columns are trials per label."""
     logging.info(f"Exporting 6x3 figure")
@@ -91,11 +92,22 @@ def export_six_by_three_figure(
         trials = labels_to_trials[label]
         if len(trials) != n_cols:
             raise ValueError(f"Label {label} has {len(trials)} trials, expected {n_cols}")
+        if label not in labels_to_results:
+            raise ValueError(f"Label {label} not found in labels_to_results")
+        results_for_label = labels_to_results[label]
+        if len(results_for_label) != n_cols:
+            raise ValueError(f"Label {label} has {len(results_for_label)} results, expected {n_cols}")
         for c in range(n_cols):
             ax = axes[r, c]
             xs, nested_ys, desc = trials[c]
             ys_means = np.array([np.mean(y) for y in nested_ys], dtype=float)
             ax.plot(xs, ys_means, "-", color="black", linewidth=0.9)
+
+            # Add vertical shaded region for the last-X-seconds window
+            res = results_for_label[c]
+            start = float(res.last_x_seconds_start)
+            end = float(res.last_x_seconds_end)
+            ax.axvspan(start, end, color="tab:grey", alpha=0.08)
 
             # Row label on the left-most column
             if c == 0:
@@ -212,7 +224,7 @@ def export_results_table_figure(
     # Build table rows (embeddable snippet with table environment)
     header_cols = ["", "Trial 1", "Trial 2", "Trial 3", "Average"]
     snippet_lines: List[str] = []
-    snippet_lines.append(r"\begin{table}[htbp]")
+    snippet_lines.append(r"\begin{table}[htbp!]")
     snippet_lines.append(r"\centering")
     snippet_lines.append(r"\begin{tabular}{lrrrr}")
     snippet_lines.append(r"\toprule")
@@ -224,12 +236,14 @@ def export_results_table_figure(
 
     for label in labels:
         row_vals: List[str] = []
-        row_vals.append(_latex_escape(label.pretty_string))
+        row_vals.append(label.pretty_string)
         results = labels_to_results[label]
         means = [r.y_mean_last_seconds for r in results]
-        row_vals.extend([_fmt(v) for v in means])
+        means_absolute = [(r.y_mean_last_seconds, r.absolute_uncertainty) for r in results]
+        standard_error = float(np.std(means, ddof=1)) / (len(means) ** 0.5)
+        row_vals.extend([f"${_fmt(m)} \pm {_fmt(a)}$" for m, a in means_absolute])
         avg_val = float(np.mean(means)) if len(means) > 0 else float("nan")
-        row_vals.append(_fmt(avg_val))
+        row_vals.append(f"${_fmt(avg_val)} \pm {_fmt(standard_error)}$")
         snippet_lines.append(" {} \\\\".format(" & ".join(row_vals)))
 
     snippet_lines.append(r"\bottomrule")
@@ -279,7 +293,7 @@ def export_avg_results_table_figure() -> str:
     ]
 
     # Validate presence and compute per-label averages
-    def _avg_for_label(label: ExperimentLabels) -> float:
+    def _avg_std_error_for_label(label: ExperimentLabels) -> Tuple[float, float]:
         if label not in labels_to_results:
             raise ValueError(f"Missing results for label {label}")
         results = labels_to_results[label]
@@ -288,14 +302,16 @@ def export_avg_results_table_figure() -> str:
                 f"Label {label} has {len(results)} results; expected exactly 3"
             )
         vals = [r.y_mean_last_seconds for r in results]
-        return float(np.mean(vals)) if len(vals) > 0 else float("nan")
+        mean = float(np.mean(vals))
+        standard_error = float(np.std(vals, ddof=1)) / (len(vals) ** 0.5)
+        return mean, standard_error
 
     def _fmt(v: float) -> str:
         return f"{v:.1f}"
 
     # Build LaTeX table snippet with header row and left label column
     snippet_lines: List[str] = []
-    snippet_lines.append(r"\begin{table}[htbp]")
+    snippet_lines.append(r"\begin{table}[htbp!]")
     snippet_lines.append(r"\centering")
     snippet_lines.append(r"\begin{tabular}{lrrr}")
     snippet_lines.append(r"\toprule")
@@ -303,10 +319,11 @@ def export_avg_results_table_figure() -> str:
     # Header row for columns
     header_cols = [
         "",
-        "80 percent",
-        "100 percent",
-        "120 percent",
+        "$80\%$",
+        "$100\%$",
+        "$120\%$",
     ]
+    header_cols = [col for col in header_cols]
     snippet_lines.append(r" {} \\".format(" & ".join(header_cols)))
     snippet_lines.append(r"\midrule")
 
@@ -316,12 +333,13 @@ def export_avg_results_table_figure() -> str:
         row_vals: List[str] = []
         row_vals.append(_latex_escape(row_titles[row_idx]))
         for label in row_labels:
-            row_vals.append(_fmt(_avg_for_label(label)))
+            mean, standard_error = _avg_std_error_for_label(label)
+            row_vals.append(f"${_fmt(mean)} \pm {_fmt(standard_error)}$")
         snippet_lines.append(" {} \\\\".format(" & ".join(row_vals)))
 
     snippet_lines.append(r"\bottomrule")
     snippet_lines.append(r"\end{tabular}")
-    label = f"Trials Average of Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes"
+    label = f"Average steady-state Y displacements ({MICROMETER}) for all configurations"
     snippet_lines.append(f"\\caption{{{_latex_escape(label)}}}")
     snippet_lines.append(f"\\label{{fig:avg_results_table}}")
     snippet_lines.append(r"\end{table}")
@@ -340,19 +358,21 @@ def export_avg_results_table_figure() -> str:
 def export_all_figures() -> None:
     """Main entrypoint to export all figures in one shot."""
     setup_logging()
+
     labels_to_trials = _collect_trials_by_label(DERIVED_DATASET_PARAMETERS)
     labels_to_results = _collect_results_by_label(DERIVED_DATASET_PARAMETERS)
-    export_six_by_three_figure(labels_to_trials)
+
+    export_six_by_three_figure(labels_to_trials, labels_to_results)
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_1_80P,
         ExperimentLabels.LINER_1_100P,
         ExperimentLabels.LINER_1_120P,
-    ], "liner_1_results_table", f"Liner 1 Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes")
+    ], "liner_1_results_table", f"Steady-state Y displacements ({MICROMETER}) for Liner 1")
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_2_80P,
         ExperimentLabels.LINER_2_100P,
         ExperimentLabels.LINER_2_120P,
-    ], "liner_2_results_table", f"Liner 2 Mean Displacement Y ({MICROMETER}) in last {RESULT_PARAMETERS.last_x_minutes} minutes")
+    ], "liner_2_results_table", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
     export_avg_results_table_figure()
     clean_unused_derived_cache()
 
