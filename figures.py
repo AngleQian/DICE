@@ -263,6 +263,68 @@ def export_results_table_figure(
     return latex_snippet_src
 
 
+def export_avg_results_plot_figure() -> str:
+    """
+    Produce a vertical bar plot of averages of `y_mean_last_seconds` for six configurations.
+
+    Bars in order:
+      Liner 1 80%, Liner 1 100%, Liner 1 120%, Liner 2 80%, Liner 2 100%, Liner 2 120%
+
+    Error bars are standard errors across the three trials per configuration.
+
+    Writes avg_results_plot.pdf in FIGURE_DIR.
+
+    Returns the output path string.
+    """
+    labels_to_results = _collect_results_by_label(DERIVED_DATASET_PARAMETERS)
+
+    label_order: List[ExperimentLabels] = [
+        ExperimentLabels.LINER_1_80P,
+        ExperimentLabels.LINER_1_100P,
+        ExperimentLabels.LINER_1_120P,
+        ExperimentLabels.LINER_2_80P,
+        ExperimentLabels.LINER_2_100P,
+        ExperimentLabels.LINER_2_120P,
+    ]
+
+    # Validate presence and compute means and standard errors
+    means: List[float] = []
+    standard_errors: List[float] = []
+    xticklabels: List[str] = []
+    for label in label_order:
+        if label not in labels_to_results:
+            raise ValueError(f"Missing results for label {label}")
+        results = labels_to_results[label]
+        if len(results) != 3:
+            raise AssertionError(
+                f"Label {label} has {len(results)} results; expected exactly 3"
+            )
+        vals = [float(r.y_mean_last_seconds) for r in results]
+        mean = float(np.mean(vals))
+        se = float(np.std(vals, ddof=1)) / (len(vals) ** 0.5)
+        means.append(mean)
+        standard_errors.append(se)
+        xticklabels.append(label.pretty_string)
+
+    _set_academic_style()
+
+    fig: Figure
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    x = np.arange(len(label_order))
+    barlist = ax.bar(x, means, yerr=standard_errors, capsize=3, color="tab:orange", edgecolor="black", linewidth=0.5)
+    ax.set_xticks(x)
+    ax.set_xticklabels(xticklabels, rotation=0)
+    ax.set_ylabel(f"Displacement y ({MICROMETER})")
+    ax.set_title("Average steady-state Y displacements")
+
+    fig.tight_layout()
+
+    output_path = FIGURE_DIR / "avg_results_plot.pdf"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return str(output_path)
+
 def export_results_plot_figure(
     labels_to_results: Dict[ExperimentLabels, List[DatasetResult]],
     labels: List[ExperimentLabels],
@@ -511,6 +573,7 @@ def export_all_figures() -> None:
         ExperimentLabels.LINER_2_120P,
     ], "liner_2_results_plot", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
     export_avg_results_table_figure()
+    export_avg_results_plot_figure()
     clean_unused_derived_cache()
 
 
