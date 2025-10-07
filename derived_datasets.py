@@ -342,19 +342,19 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0706_WorkingDir",
         x_seconds_total=15000,
-        offset_compression_factor=0.8,
+        offset_compression_factor=0.6,
         augment_data=True,
     ),
     DerivedDatasetParameters(
         working_dir="0707_WorkingDir",
         x_seconds_total=15000,
-        offset_compression_factor=0.8,
+        offset_compression_factor=0.7,
     ),
     DerivedDatasetParameters(
         working_dir="0726_WorkingDir",
         x_seconds_total=15000,
         vertical_scaling_factor=1.7,
-        offset_compression_factor=0.65,
+        offset_compression_factor=0.60,
         function_adjustment=lambda x, y: -3 if x > 11000 else 0
     ),
 ]

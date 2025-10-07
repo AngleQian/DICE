@@ -72,8 +72,8 @@ def _get_dataset_result(
     y_tail = y_series[start_index:]
 
     y_mean = float(np.mean(y_tail))
-    y_p05 = float(np.percentile(y_tail, 5))
-    y_p95 = float(np.percentile(y_tail, 95))
+    y_p05 = float(np.percentile(y_tail, 10))
+    y_p95 = float(np.percentile(y_tail, 90))
 
     # Find the earliest time x based on a 100-point moving average window
     # whose average is less than or equal to the last-window mean. The

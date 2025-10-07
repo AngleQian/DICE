@@ -263,6 +263,133 @@ def export_results_table_figure(
     return latex_snippet_src
 
 
+def export_results_plot_figure(
+    labels_to_results: Dict[ExperimentLabels, List[DatasetResult]],
+    labels: List[ExperimentLabels],
+    figure_name: str,
+    figure_label: str,
+) -> str:
+    """
+    Build a vertical bar plot summarizing per-label results.
+
+    For each label, draws 4 bars in order:
+      Trial 1, Trial 2, Trial 3, Average
+
+    Error bars:
+      - Trials use asymmetric errors from p05 and p95 relative to the mean
+      - Average uses standard error across the three trials (same as table)
+
+    Saves {figure_name}.pdf in FIGURE_DIR and returns the output path string.
+    """
+    # Validate inputs
+    if len(labels) == 0:
+        raise ValueError("labels list is empty")
+
+    for label in labels:
+        if label not in labels_to_results:
+            raise ValueError(f"Missing results for label {label}")
+        results = labels_to_results[label]
+        if len(results) != 3:
+            raise AssertionError(
+                f"Label {label} has {len(results)} results; expected exactly 3"
+            )
+
+    _set_academic_style()
+
+    # Prepare bar positions and values
+    x_positions: List[float] = []
+    bar_heights: List[float] = []
+    # Asymmetric yerr for trials (lower, upper). For average we use symmetric SE
+    lower_errors: List[float] = []
+    upper_errors: List[float] = []
+    is_average_bar: List[bool] = []
+
+    # Track group centers for x tick labels
+    group_centers: List[float] = []
+    group_labels: List[str] = []
+
+    pos_cursor = 0.0
+    group_gap = 0.6  # visual gap between label groups
+
+    for label in labels:
+        results = labels_to_results[label]
+        means = [float(r.y_mean_last_seconds) for r in results]
+        p05s = [float(r.y_p05_last_seconds) for r in results]
+        p95s = [float(r.y_p95_last_seconds) for r in results]
+
+        group_start = pos_cursor
+        # Trials 1..3
+        for i in range(3):
+            x_positions.append(pos_cursor)
+            bar_heights.append(means[i])
+            lower_errors.append(max(0.0, means[i] - p05s[i]))
+            upper_errors.append(max(0.0, p95s[i] - means[i]))
+            is_average_bar.append(False)
+            pos_cursor += 1.0
+
+        # Average bar with standard error
+        avg_val = float(np.mean(means)) if len(means) > 0 else float("nan")
+        standard_error = float(np.std(means, ddof=1)) / (len(means) ** 0.5)
+        x_positions.append(pos_cursor)
+        bar_heights.append(avg_val)
+        lower_errors.append(standard_error)
+        upper_errors.append(standard_error)
+        is_average_bar.append(True)
+
+        # Compute center of this group for x tick label
+        group_end = pos_cursor
+        group_centers.append((group_start + group_end) / 2.0)
+        group_labels.append(label.pretty_string)
+
+        # Advance cursor to next group start
+        pos_cursor += 1.0 + group_gap  # move past the avg bar and add gap
+
+    fig: Figure
+    fig, ax = plt.subplots(figsize=(12, 4.5))
+
+    # Choose colors: trials vs average
+    trial_color = "tab:blue"
+    avg_color = "tab:orange"
+    colors = [avg_color if flag else trial_color for flag in is_average_bar]
+
+    # Build asymmetric yerr: shape (2, N)
+    yerr = np.vstack([np.array(lower_errors), np.array(upper_errors)])
+
+    ax.bar(
+        x_positions,
+        bar_heights,
+        color=colors,
+        width=0.8,
+        yerr=yerr,
+        capsize=3,
+        linewidth=0.5,
+        edgecolor="black",
+    )
+
+    # X axis labeling: group labels under centers
+    ax.set_xticks(group_centers)
+    ax.set_xticklabels(group_labels, rotation=0)
+
+    # Light vertical separators between groups to aid readability
+    for center in group_centers:
+        # place separator halfway between groups by using group_gap; approximate
+        ax.axvline(center + 2.0 + (group_gap / 2.0), color="grey", alpha=0.15, linewidth=0.8)
+
+    ax.set_ylabel(f"Displacement y ({MICROMETER})")
+    ax.set_title(figure_label)
+
+    # Create a small legend proxy
+    trial_proxy = plt.Rectangle((0, 0), 1, 1, color=trial_color, ec="black", lw=0.5)
+    avg_proxy = plt.Rectangle((0, 0), 1, 1, color=avg_color, ec="black", lw=0.5)
+    ax.legend([trial_proxy, avg_proxy], ["Trial", "Average"], frameon=False, loc="best")
+
+    fig.tight_layout()
+
+    output_path = FIGURE_DIR / f"{figure_name}.pdf"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return str(output_path)
+
 def export_avg_results_table_figure() -> str:
     """
     Produce a 2x3 LaTeX table of averages of `y_mean_last_seconds`.
@@ -373,6 +500,16 @@ def export_all_figures() -> None:
         ExperimentLabels.LINER_2_100P,
         ExperimentLabels.LINER_2_120P,
     ], "liner_2_results_table", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
+    export_results_plot_figure(labels_to_results, [
+        ExperimentLabels.LINER_1_80P,
+        ExperimentLabels.LINER_1_100P,
+        ExperimentLabels.LINER_1_120P,
+    ], "liner_1_results_plot", f"Steady-state Y displacements ({MICROMETER}) for Liner 1")
+    export_results_plot_figure(labels_to_results, [
+        ExperimentLabels.LINER_2_80P,
+        ExperimentLabels.LINER_2_100P,
+        ExperimentLabels.LINER_2_120P,
+    ], "liner_2_results_plot", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
     export_avg_results_table_figure()
     clean_unused_derived_cache()
 
