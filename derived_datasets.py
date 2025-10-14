@@ -236,7 +236,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0620Midnight_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=1,
+        vertical_scaling_factor=0.85,
         offset_compression_factor=0.8,
     ),
     DerivedDatasetParameters(
@@ -251,7 +251,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0601_WorkingDir",
         x_seconds_total=15000,
-        horizontal_scaling_factor=0.85,
+        horizontal_scaling_factor=0.9,
         offset_compression_factor=0.85,
         function_adjustment=lambda x, y: two_points_interpolation(9000, 0, 13000, 3, x) if x > 9000 else 0,
         augment_data=True,
@@ -260,7 +260,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
         working_dir="0614_WorkingDir",
         x_seconds_total=15000,
         horizontal_scaling_factor=0.85,
-        vertical_scaling_factor=0.95,
+        vertical_scaling_factor=0.9,
         offset_compression_factor=0.85,
         function_adjustment=lambda x, y: 3 if x > 7000 else 0,
         augment_data=True,
@@ -275,7 +275,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0615_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=0.6,
+        vertical_scaling_factor=0.55,
         horizontal_scaling_factor=0.7,
         offset_compression_factor=2,
         function_adjustment=lambda x, y: two_points_interpolation(7500, 0, 15000, 5, x) if x > 7500 else 0,
@@ -284,14 +284,14 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0622_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=1.7,
+        vertical_scaling_factor=1.75,
         horizontal_scaling_factor=1.25,
         offset_compression_factor=0.7,
     ),
     DerivedDatasetParameters(
         working_dir="0725_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=1.5,
+        vertical_scaling_factor=1.6,
         horizontal_scaling_factor=1.7,
         offset_compression_factor=0.6,
     ),
@@ -314,7 +314,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0706Dinner_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=0.95,
+        vertical_scaling_factor=0.75,
         offset_compression_factor=0.6,
     ),
     # Liner 2 100p, -26 @ 4500
@@ -334,7 +334,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0705Dinner_WorkingDir",
         x_seconds_total=15000,
-        vertical_scaling_factor=0.85,
+        vertical_scaling_factor=0.8,
         horizontal_scaling_factor=1.7,
         offset_compression_factor=0.6,
     ),
@@ -348,6 +348,7 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
     DerivedDatasetParameters(
         working_dir="0707_WorkingDir",
         x_seconds_total=15000,
+        vertical_scaling_factor=1,
         offset_compression_factor=0.7,
     ),
     DerivedDatasetParameters(

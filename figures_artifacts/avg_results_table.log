@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  7 OCT 2025 00:21
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  9 OCT 2025 00:19
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -140,12 +140,7 @@ LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <7> on input line 3.
 LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <5> on input line 3.
-LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 1
-1.
-
-(/usr/local/texlive/2025/texmf-dist/tex/latex/lm/ts1lmr.fd
-File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
-))
+)
 
 [1
 
@@ -153,28 +148,27 @@ File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 al/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-rm.enc}{/usr/local/texlive/202
 5/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc}{/usr/local/texlive/2025/texmf-dist/f
 onts/enc/dvips/lm/lm-mathsy.enc}{/usr/local/texlive/2025/texmf-dist/fonts/enc/d
-vips/lm/lm-mathit.enc}{/usr/local/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm
--ts1.enc}] (./avg_results_table.aux)
+vips/lm/lm-mathit.enc}] (./avg_results_table.aux)
  ***********
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-01-18>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 925 strings out of 473190
- 16051 string characters out of 5715801
+ 890 strings out of 473190
+ 15161 string characters out of 5715801
  397794 words of memory out of 5000000
- 24209 multiletter control sequences out of 15000+600000
- 573965 words of font info for 49 fonts, out of 8000000 for 9000
+ 24179 multiletter control sequences out of 15000+600000
+ 573600 words of font info for 48 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 35i,9n,50p,277b,258s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 35i,9n,50p,292b,213s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi10.pfb></usr/lo
 cal/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr10.pfb></usr/local/texlive
 /2025/texmf-dist/fonts/type1/public/lm/lmsy10.pfb>
-Output written on avg_results_table.pdf (1 page, 40694 bytes).
+Output written on avg_results_table.pdf (1 page, 41670 bytes).
 PDF statistics:
- 34 PDF objects out of 1000 (max. 8388607)
- 22 compressed objects within 1 object stream
+ 30 PDF objects out of 1000 (max. 8388607)
+ 19 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  1 words of extra memory for PDF output out of 10000 (max. 10000000)
 

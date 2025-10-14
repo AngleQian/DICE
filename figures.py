@@ -248,7 +248,7 @@ def export_results_table_figure(
 
     snippet_lines.append(r"\bottomrule")
     snippet_lines.append(r"\end{tabular}")
-    snippet_lines.append(f"\\caption{{{_latex_escape(figure_label)}}}")
+    snippet_lines.append(f"\\caption{{{figure_label}}}")
     snippet_lines.append(f"\\label{{fig:{figure_name}}}")
     snippet_lines.append(r"\end{table}")
 
@@ -315,8 +315,8 @@ def export_avg_results_plot_figure() -> str:
     barlist = ax.bar(x, means, yerr=standard_errors, capsize=3, color="tab:orange", edgecolor="black", linewidth=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels(xticklabels, rotation=0)
-    ax.set_ylabel(f"Displacement y ({MICROMETER})")
-    ax.set_title("Average steady-state Y displacements")
+    ax.set_ylabel(f"Displacement Y ({MICROMETER})")
+    # ax.set_title("Average steady-state Y displacements")
 
     fig.tight_layout()
 
@@ -437,8 +437,8 @@ def export_results_plot_figure(
         # place separator halfway between groups by using group_gap; approximate
         ax.axvline(center + 2.0 + (group_gap / 2.0), color="grey", alpha=0.15, linewidth=0.8)
 
-    ax.set_ylabel(f"Displacement y ({MICROMETER})")
-    ax.set_title(figure_label)
+    ax.set_ylabel(f"Displacement Y ({MICROMETER})")
+    # ax.set_title(figure_label)
 
     # Create a small legend proxy
     trial_proxy = plt.Rectangle((0, 0), 1, 1, color=trial_color, ec="black", lw=0.5)
@@ -528,8 +528,8 @@ def export_avg_results_table_figure() -> str:
 
     snippet_lines.append(r"\bottomrule")
     snippet_lines.append(r"\end{tabular}")
-    label = f"Average steady-state Y displacements ({MICROMETER}) for all configurations"
-    snippet_lines.append(f"\\caption{{{_latex_escape(label)}}}")
+    label = f"Average steady-state $Y$ displacements ($\\mu m$) for liner 1 (thin zinc) and liner 2 (thick galvanized steel) with varying liner lengths."
+    snippet_lines.append(f"\\caption{{{label}}}")
     snippet_lines.append(f"\\label{{fig:avg_results_table}}")
     snippet_lines.append(r"\end{table}")
 
@@ -552,28 +552,33 @@ def export_all_figures() -> None:
     labels_to_results = _collect_results_by_label(DERIVED_DATASET_PARAMETERS)
 
     export_six_by_three_figure(labels_to_trials, labels_to_results)
+
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_1_80P,
         ExperimentLabels.LINER_1_100P,
         ExperimentLabels.LINER_1_120P,
-    ], "liner_1_results_table", f"Steady-state Y displacements ({MICROMETER}) for Liner 1")
+    ], "liner_1_results_table", f"Steady-state $Y$ displacements ($\\mu m$) for Liner 1 (thin zinc) with varying liner lengths.")
     export_results_table_figure(labels_to_results, [
         ExperimentLabels.LINER_2_80P,
         ExperimentLabels.LINER_2_100P,
         ExperimentLabels.LINER_2_120P,
-    ], "liner_2_results_table", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
+    ], "liner_2_results_table", f"Steady-state $Y$ displacements ($\\mu m$) for Liner 2 (thick galvanized steel) with varying liner lengths.")
+
     export_results_plot_figure(labels_to_results, [
         ExperimentLabels.LINER_1_80P,
         ExperimentLabels.LINER_1_100P,
         ExperimentLabels.LINER_1_120P,
-    ], "liner_1_results_plot", f"Steady-state Y displacements ({MICROMETER}) for Liner 1")
+    ], "liner_1_results_plot", f"Steady-state $Y$ displacements ($\\mu m$) for Liner 1 (thin zinc) with varying liner lengths.")
     export_results_plot_figure(labels_to_results, [
         ExperimentLabels.LINER_2_80P,
         ExperimentLabels.LINER_2_100P,
         ExperimentLabels.LINER_2_120P,
-    ], "liner_2_results_plot", f"Steady-state Y displacements ({MICROMETER}) for Liner 2")
+    ], "liner_2_results_plot", f"Steady-state $Y$ displacements ($\\mu m$) for Liner 2 (thick galvanized steel) with varying liner lengths.")
+
     export_avg_results_table_figure()
+
     export_avg_results_plot_figure()
+
     clean_unused_derived_cache()
 
 
