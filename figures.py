@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -9,6 +9,7 @@ import subprocess
 from parameters import ExperimentLabels
 from analysis import PROJECT_ROOT, MICROMETER
 from derived_datasets import (
+    ADDITIONAL_DERIVED_DATASET_PARAMETERS,
     DERIVED_DATASET_PARAMETERS,
     DerivedDatasetParameters,
     clean_unused_derived_cache,
@@ -21,10 +22,21 @@ from result import RESULT_PARAMETERS, DatasetResult, get_dataset_result
 FIGURE_DIR = PROJECT_ROOT / "figures_artifacts"
 
 
-def _set_academic_style() -> None:
+def _set_academic_style(
+    font_size: int = 11,
+    axis_label_size: Optional[int] = None,
+    tick_label_size: Optional[int] = None,
+) -> None:
     plt.rcParams.update({
         "text.usetex": True,
         "font.family": "serif",
+        "font.size": font_size,
+        "axes.titlesize": font_size,
+        "axes.labelsize": (axis_label_size if axis_label_size is not None else font_size),
+        "xtick.labelsize": (tick_label_size if tick_label_size is not None else font_size),
+        "ytick.labelsize": (tick_label_size if tick_label_size is not None else font_size),
+        "legend.fontsize": font_size,
+        "figure.titlesize": font_size,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "axes.grid": True,
@@ -67,7 +79,8 @@ def export_six_by_three_figure(
 ) -> None:
     """Export a 6x3 grid figure: rows are labels, columns are trials per label."""
     logging.info(f"Exporting 6x3 figure")
-    _set_academic_style()
+    # Use 13pt font for this figure and set canvas to US Letter ratio
+    _set_academic_style(font_size=13, axis_label_size=10, tick_label_size=10)
 
     row_labels: List[ExperimentLabels] = [
         ExperimentLabels.LINER_1_80P,
@@ -79,7 +92,8 @@ def export_six_by_three_figure(
     ]
 
     n_rows, n_cols = 6, 3
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 12), sharex=True, sharey=True)
+    # US Letter size in inches: 8.5 x 11 (portrait)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(8.5, 11), sharex=True, sharey=True)
 
     # Column titles
     for col in range(n_cols):
@@ -118,12 +132,15 @@ def export_six_by_three_figure(
                 ax.set_xlabel("Time (s)")
 
     # Common Y label on entire figure (left side)
-    fig.text(0.005, 0.5, f"Displacement y ({MICROMETER})", va="center", rotation="vertical")
+    fig.text(0.005, 0.5, f"Displacement y ({MICROMETER})", va="center", rotation="vertical", fontsize=13)
 
     fig.tight_layout(rect=(0.03, 0.02, 1.0, 0.98))
+    # Reduce spacing between subplots by half (default is ~0.2)
+    fig.subplots_adjust(wspace=0.1, hspace=0.1)
 
     output_path = FIGURE_DIR / "six_by_three_figure.pdf"
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    # Save without tight bounding box so the output spans the full Letter page size
+    fig.savefig(output_path, dpi=300)
     plt.close(fig)
 
 def _latex_escape(text: str) -> str:
@@ -544,6 +561,44 @@ def export_avg_results_table_figure() -> str:
     compile_table_snippet_preview(figure_name)
     return latex_snippet_src
 
+
+def export_additional_long_term_plot(
+    labels_to_trials: Dict[ExperimentLabels, List[Tuple[List[float], List[List[float]], str]]]
+) -> None:
+    """
+    Plot the single additional label's long-term Y displacement as a line plot.
+
+    Returns the output path string.
+    """
+    if len(labels_to_trials) == 0:
+        raise ValueError("No additional trials provided")
+
+    # Expect exactly one label; if more, take the first in stable order
+    label = next(iter(labels_to_trials.keys()))
+    trials = labels_to_trials[label]
+    if len(trials) == 0:
+        raise ValueError("No trial data for additional label")
+
+    # Use the first trial
+    xs, nested_ys, desc = trials[0]
+    ys_means = np.array([float(np.mean(y)) for y in nested_ys], dtype=float)
+
+    _set_academic_style(font_size=13, axis_label_size=10, tick_label_size=10)
+
+    fig: Figure
+    fig, ax = plt.subplots(figsize=(8.5, 3.8))
+
+    ax.plot(xs, ys_means, "-", color="black", linewidth=0.9)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel(f"Displacement Y ({MICROMETER})")
+
+    fig.tight_layout()
+
+    output_path = FIGURE_DIR / "long_term_y_displacements.pdf"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 def export_all_figures() -> None:
     """Main entrypoint to export all figures in one shot."""
     setup_logging()
@@ -578,6 +633,9 @@ def export_all_figures() -> None:
     export_avg_results_table_figure()
 
     export_avg_results_plot_figure()
+
+    additional_labels_to_trials = _collect_trials_by_label(ADDITIONAL_DERIVED_DATASET_PARAMETERS)
+    export_additional_long_term_plot(additional_labels_to_trials)
 
     clean_unused_derived_cache()
 

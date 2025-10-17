@@ -361,6 +361,34 @@ DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
 ]
 
 
+def adjustment_for_0726midnight_long_term(x: float, y: float) -> float:
+    first_threshold = 15000
+    if x < first_threshold:
+        return 0
+    
+    first_threshold_y = -33.7
+
+    last_x = 50000
+    last_y = -38
+
+    delta_y = last_y - first_threshold_y
+    delta_y_to_adjust = -1 * delta_y
+    result = two_points_interpolation(first_threshold, 0, last_x, delta_y_to_adjust, x)
+
+    return result
+
+
+ADDITIONAL_DERIVED_DATASET_PARAMETERS: List[DerivedDatasetParameters] = [
+    DerivedDatasetParameters(
+        working_dir="0726Midnight_WorkingDir",
+        # x_seconds_total=50000,
+        vertical_scaling_factor=1.1,
+        offset_compression_factor=0.5,
+        function_adjustment=adjustment_for_0726midnight_long_term,
+    ),
+]
+
+
 def _start_drop_index(*, num_entries: int, seconds_start_drop: int, interval_s: int) -> int:
     """Compute start index after dropping the requested head seconds (ceil to full frames)."""
     start_idx = int(np.ceil(seconds_start_drop / float(interval_s))) if seconds_start_drop > 0 else 0
@@ -618,5 +646,5 @@ def export_derived_y_plots(derived_params: List[DerivedDatasetParameters]) -> No
 
 if __name__ == "__main__":
     setup_logging()
-    export_derived_y_plots(DERIVED_DATASET_PARAMETERS)
+    export_derived_y_plots(DERIVED_DATASET_PARAMETERS + ADDITIONAL_DERIVED_DATASET_PARAMETERS)
 
